@@ -1,128 +1,115 @@
+import { useEffect, useState } from "react";
 import "./styles.css";
+import { AppContext, useApp } from "./components/context";
+import { useAppData } from "./business/state";
+import { IntakeQueue } from "./components/IntakeQueue";
+import { PackingStation } from "./components/PackingStation";
+import { CabinetMap } from "./components/CabinetMap";
+import { SpecimenDetail } from "./components/SpecimenDetail";
 
-const project = {
-  "sourceNo": 9,
-  "id": "hxyfront-62007",
-  "port": 62007,
-  "title": "植物标本馆入库",
-  "domain": "植物标本馆",
-  "prompt": "开发一个植物标本馆压制标本入库前端项目，工作人员可以录入采集号、物种名称、采集地点、海拔、生境描述、采集人、压制状态、鉴定状态和馆藏位置。页面需要有入库队列、鉴定状态筛选、采集地点信息卡、馆藏柜位记录和单份标本详情页。",
-  "palette": [
-    "#166534",
-    "#0f766e",
-    "#ca8a04"
-  ],
-  "metrics": [
-    "入库队列",
-    "待鉴定",
-    "已上柜",
-    "采集点"
-  ],
-  "filters": [
-    "待压制",
-    "待鉴定",
-    "已入库",
-    "需补照"
-  ],
-  "fields": [
-    "采集号",
-    "物种名称",
-    "采集地点",
-    "海拔",
-    "生境描述",
-    "馆藏位置"
-  ],
-  "records": [
-    [
-      "HX-240615-01",
-      "槭属待定",
-      "海拔1420m",
-      "待鉴定"
-    ],
-    [
-      "HX-240615-08",
-      "蕨类",
-      "阴湿沟谷",
-      "已压制"
-    ],
-    [
-      "HX-240616-03",
-      "菊科",
-      "柜位B-12-04",
-      "已入库"
-    ]
-  ]
-};
+type Route = { name: "queue" } | { name: "packing" } | { name: "cabinet" } | { name: "specimen"; id: string };
 
-function App() {
+function parseHash(): Route {
+  const hash = window.location.hash.replace(/^#/, "") || "/";
+  const specimenMatch = hash.match(/^\/specimen\/(.+)$/);
+  if (specimenMatch) return { name: "specimen", id: specimenMatch[1] };
+  if (hash === "/packing") return { name: "packing" };
+  if (hash === "/cabinet") return { name: "cabinet" };
+  return { name: "queue" };
+}
+
+const TABS = [
+  { hash: "#/", label: "入库队列", route: "queue" },
+  { hash: "#/packing", label: "装箱台", route: "packing" },
+  { hash: "#/cabinet", label: "柜位", route: "cabinet" },
+] as const;
+
+function Shell() {
+  const { data, dispatch } = useApp();
+  const [route, setRoute] = useState<Route>(parseHash);
+
+  useEffect(() => {
+    const onChange = () => setRoute(parseHash());
+    window.addEventListener("hashchange", onChange);
+    return () => window.removeEventListener("hashchange", onChange);
+  }, []);
+
+  const pendingId = data.specimens.filter(
+    (s) => s.idStatus === "pending" && s.stage !== "archived",
+  ).length;
+  const shelved = data.specimens.filter(
+    (s) => s.stage === "cabinet" && !s.boxId,
+  ).length;
+  const inTransit = data.boxes
+    .filter((b) => b.status === "sealed")
+    .reduce((sum, b) => sum + b.itemIds.length, 0);
+  const archived = data.specimens.filter((s) => s.stage === "archived").length;
+
+  const metrics = [
+    { label: "在馆标本", value: data.specimens.filter((s) => s.stage !== "archived").length },
+    { label: "待鉴定 / 待复核", value: pendingId },
+    { label: "已上柜待装", value: shelved },
+    { label: "在途交换", value: inTransit },
+    { label: "外馆留档", value: archived },
+  ];
+
   return (
     <main className="app">
       <section className="hero">
-        <p>{project.id} · 源提示词{project.sourceNo} · Port {project.port}</p>
-        <h1>{project.title}</h1>
-        <span>{project.prompt}</span>
+        <p>hxyfront-62007 · 复份交换装箱台 · Port 62007</p>
+        <h1>植物标本馆复份交换</h1>
+        <span>
+          纸单排箱改为按外馆电子分箱：仅鉴定接受、已上柜且未在途交换的标本可入箱，
+          同一采集号每箱只留一份；箱满封存，退回份回到待复核、空槽可补装，接受份外馆留档。
+          数据存于本浏览器，重开页面可继续处理。
+        </span>
       </section>
 
       <section className="metrics">
-        {project.metrics.map((metric: string, index: number) => (
-          <article key={metric}>
-            <small>{metric}</small>
-            <strong>{[86, 14, 7, 32][index] ?? 12}</strong>
+        {metrics.map((m) => (
+          <article key={m.label}>
+            <small>{m.label}</small>
+            <strong>{m.value}</strong>
           </article>
         ))}
       </section>
 
-      <section className="workspace">
-        <aside className="panel">
-          <h2>{project.domain}筛选</h2>
-          <div className="chips">
-            {project.filters.map((item: string) => (
-              <button key={item}>{item}</button>
-            ))}
-          </div>
-        </aside>
+      <nav className="tabs">
+        {TABS.map((tab) => (
+          <a
+            key={tab.hash}
+            href={tab.hash}
+            className={route.name === tab.route || (tab.route === "queue" && route.name === "specimen") ? "active" : ""}
+          >
+            {tab.label}
+          </a>
+        ))}
+        <button
+          className="reset-btn"
+          onClick={() => {
+            if (window.confirm("恢复为演示种子数据？当前修改将被清除。")) {
+              dispatch({ type: "reset" });
+              window.location.hash = "#/";
+            }
+          }}
+        >
+          重置演示数据
+        </button>
+      </nav>
 
-        <section className="panel form-panel">
-          <div className="heading">
-            <div>
-              <p>专业字段</p>
-              <h2>新增记录</h2>
-            </div>
-            <button className="primary">保存草稿</button>
-          </div>
-          <div className="field-grid">
-            {project.fields.map((field: string) => (
-              <label key={field}>
-                <span>{field}</span>
-                <input placeholder={"填写" + field} />
-              </label>
-            ))}
-          </div>
-        </section>
-      </section>
-
-      <section className="panel">
-        <div className="heading">
-          <div>
-            <p>历史记录</p>
-            <h2>近期工作台</h2>
-          </div>
-          <button>导出摘要</button>
-        </div>
-        <div className="records">
-          {project.records.map((record: string[], index: number) => (
-            <article key={record.join("-")}>
-              <b>{String(index + 1).padStart(2, "0")}</b>
-              <div>
-                <h3>{record[0]}</h3>
-                <p>{record.slice(1).join(" · ")}</p>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
+      {route.name === "queue" && <IntakeQueue />}
+      {route.name === "packing" && <PackingStation />}
+      {route.name === "cabinet" && <CabinetMap />}
+      {route.name === "specimen" && <SpecimenDetail key={route.id} id={route.id} />}
     </main>
   );
 }
 
-export default App;
+export default function App() {
+  const store = useAppData();
+  return (
+    <AppContext.Provider value={store}>
+      <Shell />
+    </AppContext.Provider>
+  );
+}
