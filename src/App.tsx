@@ -1,126 +1,92 @@
+import { useMemo } from "react";
+import { store, type Route } from "./business/store";
+import { freeSlots } from "./business/packing";
+import { QueuePage } from "./components/QueuePage";
+import { CabinetPage } from "./components/CabinetPage";
+import { LocalitiesPage } from "./components/LocalitiesPage";
+import { PackingPage } from "./components/PackingPage";
+import { DetailPage } from "./components/DetailPage";
 import "./styles.css";
 
-const project = {
-  "sourceNo": 9,
-  "id": "hxyfront-62007",
-  "port": 62007,
-  "title": "植物标本馆入库",
-  "domain": "植物标本馆",
-  "prompt": "开发一个植物标本馆压制标本入库前端项目，工作人员可以录入采集号、物种名称、采集地点、海拔、生境描述、采集人、压制状态、鉴定状态和馆藏位置。页面需要有入库队列、鉴定状态筛选、采集地点信息卡、馆藏柜位记录和单份标本详情页。",
-  "palette": [
-    "#166534",
-    "#0f766e",
-    "#ca8a04"
-  ],
-  "metrics": [
-    "入库队列",
-    "待鉴定",
-    "已上柜",
-    "采集点"
-  ],
-  "filters": [
-    "待压制",
-    "待鉴定",
-    "已入库",
-    "需补照"
-  ],
-  "fields": [
-    "采集号",
-    "物种名称",
-    "采集地点",
-    "海拔",
-    "生境描述",
-    "馆藏位置"
-  ],
-  "records": [
-    [
-      "HX-240615-01",
-      "槭属待定",
-      "海拔1420m",
-      "待鉴定"
-    ],
-    [
-      "HX-240615-08",
-      "蕨类",
-      "阴湿沟谷",
-      "已压制"
-    ],
-    [
-      "HX-240616-03",
-      "菊科",
-      "柜位B-12-04",
-      "已入库"
-    ]
-  ]
-};
+const TABS: { key: Route["name"]; label: string; route: Route }[] = [
+  { key: "queue", label: "入库队列", route: { name: "queue" } },
+  { key: "cabinet", label: "馆藏柜位", route: { name: "cabinet" } },
+  { key: "localities", label: "采集地点信息卡", route: { name: "localities" } },
+  { key: "packing", label: "复份交换装箱台", route: { name: "packing" } },
+];
 
 function App() {
+  const { data, route, toast } = store.useState();
+
+  const metrics = useMemo(() => {
+    const pending = data.specimens.filter((s) => s.determination === "pending" || s.determination === "review").length;
+    const shelved = data.specimens.filter((s) => s.shelved && !s.archived).length;
+    const localities = new Set(data.specimens.map((s) => s.locality).filter(Boolean)).size;
+    const transit = data.boxes
+      .filter((b) => b.status === "in_transit")
+      .reduce((sum, b) => sum + b.itemIds.length, 0);
+    const openSlots = data.boxes
+      .filter((b) => b.status === "open")
+      .reduce((sum, b) => sum + freeSlots(b), 0);
+    return [
+      { label: "待鉴定 / 待复核", value: pending },
+      { label: "已上柜", value: shelved },
+      { label: "在途交换", value: transit },
+      { label: "可补空位 / 采集点", value: `${openSlots} 位 · ${localities} 点` },
+    ];
+  }, [data]);
+
+  const activeTab = route.name === "detail" ? "queue" : route.name;
+
   return (
     <main className="app">
-      <section className="hero">
-        <p>{project.id} · 源提示词{project.sourceNo} · Port {project.port}</p>
-        <h1>{project.title}</h1>
-        <span>{project.prompt}</span>
-      </section>
+      <header className="topbar">
+        <div className="brand">
+          <p>hxyfront-62007 · Port 62007</p>
+          <h1>植物标本馆入库 · 复份交换装箱台</h1>
+          <span>入库队列、柜位与详情页读同一份浏览器数据，重开浏览器仍可继续处理。</span>
+        </div>
+        <nav className="tabs">
+          {TABS.map((t) => (
+            <button
+              key={t.key}
+              className={activeTab === t.key ? "tab active" : "tab"}
+              onClick={() => store.navigate(t.route)}
+            >
+              {t.label}
+            </button>
+          ))}
+        </nav>
+      </header>
 
       <section className="metrics">
-        {project.metrics.map((metric: string, index: number) => (
-          <article key={metric}>
-            <small>{metric}</small>
-            <strong>{[86, 14, 7, 32][index] ?? 12}</strong>
+        {metrics.map((m) => (
+          <article key={m.label}>
+            <small>{m.label}</small>
+            <strong>{m.value}</strong>
           </article>
         ))}
       </section>
 
-      <section className="workspace">
-        <aside className="panel">
-          <h2>{project.domain}筛选</h2>
-          <div className="chips">
-            {project.filters.map((item: string) => (
-              <button key={item}>{item}</button>
-            ))}
-          </div>
-        </aside>
+      {route.name === "queue" && <QueuePage />}
+      {route.name === "cabinet" && <CabinetPage />}
+      {route.name === "localities" && <LocalitiesPage />}
+      {route.name === "packing" && <PackingPage />}
+      {route.name === "detail" && <DetailPage id={route.id} />}
 
-        <section className="panel form-panel">
-          <div className="heading">
-            <div>
-              <p>专业字段</p>
-              <h2>新增记录</h2>
-            </div>
-            <button className="primary">保存草稿</button>
-          </div>
-          <div className="field-grid">
-            {project.fields.map((field: string) => (
-              <label key={field}>
-                <span>{field}</span>
-                <input placeholder={"填写" + field} />
-              </label>
-            ))}
-          </div>
-        </section>
-      </section>
+      <footer className="footer">
+        <span>数据仅保存在本机浏览器 localStorage（hxyfront-62007-herbarium-v1）。</span>
+        <button
+          className="reset-btn"
+          onClick={() => {
+            if (window.confirm("将清空当前浏览器数据并恢复演示标本，确定继续吗？")) store.resetAll();
+          }}
+        >
+          恢复演示数据
+        </button>
+      </footer>
 
-      <section className="panel">
-        <div className="heading">
-          <div>
-            <p>历史记录</p>
-            <h2>近期工作台</h2>
-          </div>
-          <button>导出摘要</button>
-        </div>
-        <div className="records">
-          {project.records.map((record: string[], index: number) => (
-            <article key={record.join("-")}>
-              <b>{String(index + 1).padStart(2, "0")}</b>
-              <div>
-                <h3>{record[0]}</h3>
-                <p>{record.slice(1).join(" · ")}</p>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
+      {toast && <div className={`toast ${toast.kind}`}>{toast.text}</div>}
     </main>
   );
 }
